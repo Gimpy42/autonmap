@@ -1,68 +1,75 @@
-# pip requirements
-# nmap: pip install python-nmap
-# nclib: pip install nclib
-
-import nmap3
 import logging
+from nmap3 import Nmap, NmapScanTechniques
 import nclib
+import sys
 
 # Set up logging
 logging.basicConfig(filename='nmap_scan.log', level=logging.INFO)
-nmap = nmap3.Nmap()
 
 def run_nmap_scan(target):
     """
     Run various nmap scans on a target.
     """
-    # Create an instance of PortScanner
-    nm = nmap.PortScanner()
+    # Create an instance of Nmap
+    nmap = Nmap()
+
+    # Create an instance of NmapScanTechniques
+    nmap_scan_techniques = NmapScanTechniques()
 
     # Run the scans
     logging.info(f"Running nmap scans on {target}")
 
     # Syn-scan
     logging.info("Running Syn-scan")
-    nm.scan(target, arguments='-sS')
+    result = nmap_scan_techniques.nmap_syn_scan(target)
+    check_host_down(result, target, nmap_scan_techniques.nmap_syn_scan)
 
     # Scan all ports
     logging.info("Scanning all ports")
-    nm.scan(target, arguments='-p-')
+    result = nmap_scan_techniques.nmap_syn_scan(target, args="-p-")
+    check_host_down(result, target, nmap_scan_techniques.nmap_syn_scan)
 
     # Service-version, default scripts, OS
     logging.info("Running service-version, default scripts, OS scan")
-    for host in nm.all_hosts():
-        for proto in nm[host].all_protocols():
-            lport = nm[host][proto].keys()
-            for port in lport:
-                nm.scan(target, arguments=f'-sV -sC -O -p {port}')
+    result = nmap.nmap_version_detection(target)
+    check_host_down(result, target, nmap.nmap_version_detection)
 
     # Scan for UDP
     logging.info("Scanning for UDP")
-    nm.scan(target, arguments='-sU')
+    result = nmap_scan_techniques.nmap_udp_scan(target)
+    check_host_down(result, target, nmap_scan_techniques.nmap_udp_scan)
 
     # Monster scan
     logging.info("Running monster scan")
-    nm.scan(target, arguments='-p- -A -T4 -sC')
+    result = nmap_scan_techniques.nmap_syn_scan(target, args="-A -T4 -sC")
+    check_host_down(result, target, nmap_scan_techniques.nmap_syn_scan)
 
     # Return the result
-    return nm
+    return result
 
-def parse_nmap_results(nm):
+def check_host_down(result, target, scan_function):
+    """
+    Check if the host is down and if so, rerun the scan with -Pn flag.
+    """
+    if 'error' in result[target] and 'Host seems down' in result[target]['error']:
+        logging.info("Host seems down, running scan with -Pn flag")
+        result = scan_function(target, args="-Pn")
+
+def parse_nmap_results(result):
     """
     Parse the results of an nmap scan.
     """
     # Parse the results
-    for host in nm.all_hosts():
-        logging.info(f"Host : {host} ({nm[host].hostname()})")
-        logging.info(f"State : {nm[host].state()}")
+    for host, info in result.items():
+        logging.info(f"Host : {host}")
+        logging.info(f"State : {info['state']}")
 
         # Iterate over all protocols
-        for proto in nm[host].all_protocols():
+        for proto, details in info['ports'].items():
             logging.info(f"Protocol : {proto}")
 
-            lport = nm[host][proto].keys()
-            for port in lport:
-                logging.info(f"port : {port}, state : {nm[host][proto][port]['state']}")
+            for port, port_info in details.items():
+                logging.info(f"port : {port}, state : {port_info['state']}")
 
 def connect_to_udp(target, port):
     """
@@ -76,26 +83,29 @@ def connect_to_udp(target, port):
     # Log the result
     logging.info(response)
 
-def main():
+def main(target):
     """
     Main function to run the script.
     """
-    target = '127.0.0.1'  # Replace with your target
-
     # Run the nmap scan
-    nm = run_nmap_scan(target)
+    result = run_nmap_scan(target)
 
     # Parse the results
-    parse_nmap_results(nm)
+    parse_nmap_results(result)
 
     # Connect to open UDP ports
-    for host in nm.all_hosts():
-        for proto in nm[host].all_protocols():
-            if proto == 'udp':
-                lport = nm[host][proto].keys()
-                for port in lport:
-                    if nm[host][proto][port]['state'] == 'open':
-                        connect_to_udp(target, port)
+    for host, info in result.items():
+        if 'ports' in info:
+            for proto, details in info['ports'].items():
+                if proto == 'udp':
+                    for port, port_info in details.items():
+                        if port_info['state'] == 'open':
+                            connect_to_udp(target, port)
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) != 2:
+        print("Usage: python script.py <target>")
+        sys.exit(1)
+
+    target = sys.argv[1]
+    main(target)
