@@ -2,12 +2,13 @@
 # nmap: pip install python-nmap
 # nclib: pip install nclib
 
-import nmap
+import nmap3
 import logging
 import nclib
 
 # Set up logging
 logging.basicConfig(filename='nmap_scan.log', level=logging.INFO)
+nmap = nmap3.Nmap()
 
 def run_nmap_scan(target):
     """
